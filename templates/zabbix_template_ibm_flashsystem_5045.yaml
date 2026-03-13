@@ -1,0 +1,828 @@
+zabbix_export:
+  version: '7.2'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+    - uuid: 7c2cb727f85b492d88cd56e17127c64d
+      name: Templates/SAN
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/IBM Storage
+  templates:
+    - uuid: e0231cd8ce8e4e83b1da37802600fe17
+      template: 'IBM FlashSystem 5045 by Go ExternalCheck'
+      name: 'IBM FlashSystem 5045 by Go ExternalCheck'
+      description: |
+        Plantilla de monitoreo para IBM FlashSystem 5045/7300/9500 y SAN Volume Controller
+        Compatible con Storage Virtualize V8.7
+        
+        Requisitos:
+        - Binario Go: ibm_flash_monitor en /usr/lib/zabbix/externalscripts/
+        - Autenticación SSH por clave (sin password)
+        - Usuario zabbix_monitor con permisos de solo lectura
+        
+        Referencias documentales:
+        - sg248561.txt: IBM Storage Virtualize V8.7 Redbook
+        - svc_bkmap_cliguidebk (1).txt: CLI Command Reference
+        - sg248543.txt: Data Reduction & Replication
+        - Zabbix_Documentation_7.2.en.txt: ExternalCheck specification
+        
+        Versión: 1.0.0
+        Autor: Alatreon Bank - Storage Monitoring Team
+      groups:
+        - name: Templates
+        - name: Templates/SAN
+        - name: Templates/IBM Storage
+      applications:
+        - name: System Health
+        - name: Storage Pools
+        - name: Volumes
+        - name: Hardware
+        - name: Replication
+        - name: Safeguarded Copy
+        - name: Events
+      macros:
+        - macro: '{$IBM_STORAGE.SSH_USER}'
+          value: 'zabbix_monitor'
+          description: 'Usuario de solo lectura en FlashSystem (ssh_key=yes, securityadmin=no)'
+        - macro: '{$IBM_STORAGE.SSH_KEY_PATH}'
+          value: '/opt/zabbix-ibm-flash/config/id_ibm_flash'
+          description: 'Ruta a clave privada SSH ED25519 (permisos 600)'
+        - macro: '{$IBM_STORAGE.TIMEOUT}'
+          value: '25'
+          description: 'Timeout SSH en segundos (debe ser < Timeout en zabbix_server.conf)'
+        - macro: '{$IBM_STORAGE.LLD_INTERVAL}'
+          value: '3600'
+          description: 'Intervalo de Low-Level Discovery (segundos)'
+        - macro: '{$POOL_CAPACITY_WARN}'
+          value: '85'
+          description: 'Umbral de warning para capacidad de pool (%)'
+        - macro: '{$POOL_CAPACITY_CRIT}'
+          value: '95'
+          description: 'Umbral crítico para capacidad de pool (%)'
+        - macro: '{$SAFEGUARDED_EXPIRY_WARN}'
+          value: '24'
+          description: 'Alertar cuando Safeguarded Copy expire en < X horas'
+        - macro: '{$REPLICATION_LAG_WARN}'
+          value: '300'
+          description: 'Alertar cuando lag de replicación > X segundos'
+        - macro: '{$BATTERY_FAIL_CRIT}'
+          value: '1'
+          description: 'Trigger crítico si batería falla (1=online, 0=failed)'
+      items:
+        # =======================================================================
+        # SYSTEM HEALTH ITEMS (No LLD)
+        # =======================================================================
+        - uuid: 51f1ea3e91b040f49e8f772b652db1f3
+          name: 'System Health Status'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "system_health"]'
+          delay: 60s
+          history: 7d
+          value_type: FLOAT
+          description: |
+            Estado general del sistema (1=online, 0=offline, 2=warning, 3=unknown)
+            Comando: lssystem -delim : -nohdr
+            Referencia: svc_bkmap_cliguidebk (1).txt
+          applications:
+            - application:
+                name: System Health
+          tags:
+            - tag: Component
+              value: System
+            - tag: Technology
+              value: Storage Virtualize
+        - uuid: 51f1ea3e91b040f49e8f772b652db1f4
+          name: 'System Name'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "system_name"]'
+          delay: 3600s
+          history: 7d
+          value_type: CHAR
+          description: |
+            Nombre del sistema para inventario
+            Comando: lssystem -delim : -nohdr
+          applications:
+            - application:
+                name: System Health
+        - uuid: 51f1ea3e91b040f49e8f772b652db1f5
+          name: 'System Serial'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "system_serial"]'
+          delay: 3600s
+          history: 7d
+          value_type: CHAR
+          description: |
+            Número de serial del sistema para inventario
+            Comando: lssystem -delim : -nohdr
+          applications:
+            - application:
+                name: System Health
+        - uuid: 51f1ea3e91b040f49e8f772b652db1f6
+          name: 'System Version'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "system_version"]'
+          delay: 3600s
+          history: 7d
+          value_type: CHAR
+          description: |
+            Versión de software Storage Virtualize
+            Comando: lssystem -delim : -nohdr
+          applications:
+            - application:
+                name: System Health
+        - uuid: 51f1ea3e91b040f49e8f772b652db1f7
+          name: 'Critical Events Count'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "critical_events_count"]'
+          delay: 120s
+          history: 7d
+          value_type: FLOAT
+          description: |
+            Número de eventos críticos no resueltos
+            Comando: lseventlog -filtervalue severity=critical -fixed no -nohdr
+            Referencia: sg248561.txt Sección 4.2.2 - Audit log
+          applications:
+            - application:
+                name: Events
+          tags:
+            - tag: Component
+              value: Events
+        - uuid: 51f1ea3e91b040f49e8f772b652db1f8
+          name: 'Warning Events Count'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "warning_events_count"]'
+          delay: 120s
+          history: 7d
+          value_type: FLOAT
+          description: |
+            Número de eventos warning no resueltos
+            Comando: lseventlog -filtervalue severity=warning -fixed no -nohdr
+          applications:
+            - application:
+                name: Events
+      discovery_rules:
+        # =======================================================================
+        # DISCOVER STORAGE POOLS
+        # =======================================================================
+        - uuid: 61f1ea3e91b040f49e8f772b652db2a1
+          name: 'Discover Storage Pools'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "discover_pools"]'
+          delay: '{$IBM_STORAGE.LLD_INTERVAL}'
+          lifetime: 30d
+          description: |
+            Descubre pools de almacenamiento (MDisk Groups)
+            Comando: lsmdiskgrp -nohdr -delim :
+            Referencia: sg248561.txt Capítulo 3 - Storage pools
+          item_prototypes:
+            - uuid: 71f1ea3e91b040f49e8f772b652db3a1
+              name: 'Pool {#POOL_NAME} - Capacity Used %'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "pool_capacity_used_percent", "{#POOL_ID}"]'
+              delay: 300s
+              history: 7d
+              value_type: FLOAT
+              units: '%'
+              description: |
+                Porcentaje de capacidad usada del pool
+                Comando: lsmdiskgrp {#POOL_ID} -delim : -nohdr
+              applications:
+                - application:
+                    name: Storage Pools
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4a1
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "pool_capacity_used_percent", "{#POOL_ID}"])>{$POOL_CAPACITY_CRIT}'
+                  name: 'Pool {#POOL_NAME} - Capacity CRITICAL (>{$POOL_CAPACITY_CRIT}%)'
+                  priority: HIGH
+                  description: 'Capacidad del pool crítica. Liberar espacio o agregar discos.'
+                  tags:
+                    - tag: Component
+                      value: Storage
+                    - tag: Severity
+                      value: Critical
+                - uuid: 81f1ea3e91b040f49e8f772b652db4a2
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "pool_capacity_used_percent", "{#POOL_ID}"])>{$POOL_CAPACITY_WARN}'
+                  name: 'Pool {#POOL_NAME} - Capacity WARNING (>{$POOL_CAPACITY_WARN}%)'
+                  priority: AVERAGE
+                  description: 'Capacidad del pool elevada. Planificar expansión.'
+                  tags:
+                    - tag: Component
+                      value: Storage
+                    - tag: Severity
+                      value: Warning
+            - uuid: 71f1ea3e91b040f49e8f772b652db3a2
+              name: 'Pool {#POOL_NAME} - Free Capacity'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "pool_free_capacity_bytes", "{#POOL_ID}"]'
+              delay: 300s
+              history: 7d
+              value_type: FLOAT
+              units: B
+              description: |
+                Capacidad libre del pool en bytes
+                Comando: lsmdiskgrp {#POOL_ID} -delim : -nohdr
+              applications:
+                - application:
+                    name: Storage Pools
+            - uuid: 71f1ea3e91b040f49e8f772b652db3a3
+              name: 'Pool {#POOL_NAME} - Total Capacity'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "pool_total_capacity_bytes", "{#POOL_ID}"]'
+              delay: 3600s
+              history: 7d
+              value_type: FLOAT
+              units: B
+              description: |
+                Capacidad total del pool en bytes
+              applications:
+                - application:
+                    name: Storage Pools
+            - uuid: 71f1ea3e91b040f49e8f772b652db3a4
+              name: 'Pool {#POOL_NAME} - Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "pool_status", "{#POOL_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado del pool (1=online, 0=offline, 2=warning)
+              applications:
+                - application:
+                    name: Storage Pools
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4a3
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "pool_status", "{#POOL_ID}"])=0'
+                  name: 'Pool {#POOL_NAME} - OFFLINE'
+                  priority: DISASTER
+                  description: 'Pool offline. Verificar MDisks y arrays.'
+                  tags:
+                    - tag: Component
+                      value: Storage
+                    - tag: Severity
+                      value: Disaster
+            - uuid: 71f1ea3e91b040f49e8f772b652db3a5
+              name: 'Pool {#POOL_NAME} - Compression Ratio'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "pool_compression_ratio", "{#POOL_ID}"]'
+              delay: 600s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Ratio de compresión del pool (data reduction)
+                Referencia: sg248543.txt - Data reduction pools
+              applications:
+                - application:
+                    name: Storage Pools
+          graph_prototypes:
+            - uuid: 91f1ea3e91b040f49e8f772b652db5a1
+              name: 'Pool {#POOL_NAME} - Capacity Overview'
+              width: 900
+              height: 200
+              graph_items:
+                - drawtype: GRADIENT_LINE
+                  color: '00CC00'
+                  item:
+                    host: 'IBM FlashSystem 5045 by Go ExternalCheck'
+                    key: 'ibm_flash_monitor["{HOST.CONN}", "pool_capacity_used_percent", "{#POOL_ID}"]'
+                - drawtype: FILLED_REGION
+                  color: 'FF6600'
+                  yaxisside: RIGHT
+                  item:
+                    host: 'IBM FlashSystem 5045 by Go ExternalCheck'
+                    key: 'ibm_flash_monitor["{HOST.CONN}", "pool_free_capacity_bytes", "{#POOL_ID}"]'
+        
+        # =======================================================================
+        # DISCOVER VOLUMES
+        # =======================================================================
+        - uuid: 61f1ea3e91b040f49e8f772b652db2a2
+          name: 'Discover Volumes'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "discover_volumes"]'
+          delay: '{$IBM_STORAGE.LLD_INTERVAL}'
+          lifetime: 30d
+          description: |
+            Descubre volúmenes virtuales (VDisks)
+            Comando: lsvdisk -nohdr -delim :
+            Referencia: svc_bkmap_cliguidebk (1).txt - Volume commands
+          item_prototypes:
+            - uuid: 71f1ea3e91b040f49e8f772b652db3b1
+              name: 'Volume {#VDISK_NAME} - Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "volume_status", "{#VDISK_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado del volumen (1=online, 0=offline)
+              applications:
+                - application:
+                    name: Volumes
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4b1
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "volume_status", "{#VDISK_ID}"])=0'
+                  name: 'Volume {#VDISK_NAME} - OFFLINE'
+                  priority: DISASTER
+                  description: 'Volumen offline. Verificar hosts y mapeos.'
+                  tags:
+                    - tag: Component
+                      value: Storage
+                    - tag: Severity
+                      value: Disaster
+            - uuid: 71f1ea3e91b040f49e8f772b652db3b2
+              name: 'Volume {#VDISK_NAME} - Capacity'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "volume_capacity_bytes", "{#VDISK_ID}"]'
+              delay: 600s
+              history: 7d
+              value_type: FLOAT
+              units: B
+              description: |
+                Capacidad del volumen en bytes
+              applications:
+                - application:
+                    name: Volumes
+            - uuid: 71f1ea3e91b040f49e8f772b652db3b3
+              name: 'Volume {#VDISK_NAME} - Mapped'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "volume_mapped", "{#VDISK_ID}"]'
+              delay: 600s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Volumen mapeado a hosts (1=yes, 0=no)
+              applications:
+                - application:
+                    name: Volumes
+        
+        # =======================================================================
+        # DISCOVER SAFEGUARDED VOLUMES (NEW - Cyber Resiliency)
+        # =======================================================================
+        - uuid: 61f1ea3e91b040f49e8f772b652db2a3
+          name: 'Discover Safeguarded Volumes'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "discover_safeguarded_volumes"]'
+          delay: '{$IBM_STORAGE.LLD_INTERVAL}'
+          lifetime: 30d
+          description: |
+            Descubre volúmenes con Safeguarded Copy (protección ransomware)
+            Comando: lsvdiskcopy -filtervalue safeguarded_copy=yes -nohdr -delim :
+            Referencia: sg248561.txt Sección 6.3 - Safeguarded Copy
+          item_prototypes:
+            - uuid: 71f1ea3e91b040f49e8f772b652db3c1
+              name: 'Safeguarded Copy {#VDISK_NAME} - Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "safeguarded_copy_status", "{#VDISK_ID}"]'
+              delay: 300s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado de Safeguarded Copy (1=healthy, 0=problem, -1=not_configured)
+                Referencia: sg248561.txt Sección 6.3
+              applications:
+                - application:
+                    name: Safeguarded Copy
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4c1
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "safeguarded_copy_status", "{#VDISK_ID}"])=0'
+                  name: 'Safeguarded Copy {#VDISK_NAME} - PROBLEM'
+                  priority: HIGH
+                  description: 'Safeguarded Copy con problemas. Verificar snapshots y políticas.'
+                  tags:
+                    - tag: Component
+                      value: Cyber Resiliency
+                    - tag: Severity
+                      value: High
+            - uuid: 71f1ea3e91b040f49e8f772b652db3c2
+              name: 'Safeguarded Copy {#VDISK_NAME} - Expiry Hours'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "safeguarded_copy_expiry_hours", "{#VDISK_ID}"]'
+              delay: 600s
+              history: 7d
+              value_type: FLOAT
+              units: h
+              description: |
+                Horas restantes hasta expiración de Safeguarded Copy
+                Referencia: sg248561.txt - Safeguarded Copy retention
+              applications:
+                - application:
+                    name: Safeguarded Copy
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4c2
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "safeguarded_copy_expiry_hours", "{#VDISK_ID}"])<{$SAFEGUARDED_EXPIRY_WARN}'
+                  name: 'Safeguarded Copy {#VDISK_NAME} - Expiring Soon (<{$SAFEGUARDED_EXPIRY_WARN}h)'
+                  priority: AVERAGE
+                  description: 'Safeguarded Copy próxima a expirar. Extender retención o crear nueva copia.'
+                  tags:
+                    - tag: Component
+                      value: Cyber Resiliency
+                    - tag: Severity
+                      value: Warning
+            - uuid: 71f1ea3e91b040f49e8f772b652db3c3
+              name: 'Safeguarded Copy {#VDISK_NAME} - Policy Name'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "safeguarded_copy_policy_name", "{#VDISK_ID}"]'
+              delay: 3600s
+              history: 7d
+              value_type: CHAR
+              description: |
+                Nombre de la política de snapshot asociada
+              applications:
+                - application:
+                    name: Safeguarded Copy
+        
+        # =======================================================================
+        # DISCOVER DRIVES
+        # =======================================================================
+        - uuid: 61f1ea3e91b040f49e8f772b652db2a4
+          name: 'Discover Drives'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "discover_drives"]'
+          delay: '{$IBM_STORAGE.LLD_INTERVAL}'
+          lifetime: 30d
+          description: |
+            Descubre drives físicos
+            Comando: lsdrive -nohdr -delim :
+            Referencia: svc_bkmap_cliguidebk (1).txt - Hardware commands
+          item_prototypes:
+            - uuid: 71f1ea3e91b040f49e8f772b652db3d1
+              name: 'Drive Enclosure {#ENCLOSURE_ID} Slot {#SLOT_ID} - Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "drive_status", "{#ENCLOSURE_ID}", "{#DRIVE_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado del drive físico (1=online, 0=failed, 2=rebuilding)
+                Referencia: sg248561.txt - Hardware monitoring
+              applications:
+                - application:
+                    name: Hardware
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4d1
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "drive_status", "{#ENCLOSURE_ID}", "{#DRIVE_ID}"])=0'
+                  name: 'Drive Enclosure {#ENCLOSURE_ID} Slot {#SLOT_ID} - FAILED'
+                  priority: HIGH
+                  description: 'Drive fallido. Reemplazar inmediatamente.'
+                  tags:
+                    - tag: Component
+                      value: Hardware
+                    - tag: Severity
+                      value: High
+        
+        # =======================================================================
+        # DISCOVER ENCLOSURES
+        # =======================================================================
+        - uuid: 61f1ea3e91b040f49e8f772b652db2a5
+          name: 'Discover Enclosures'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "discover_enclosures"]'
+          delay: '{$IBM_STORAGE.LLD_INTERVAL}'
+          lifetime: 30d
+          description: |
+            Descubre enclosures/chassis
+            Comando: lsenclosure -nohdr -delim :
+          item_prototypes:
+            - uuid: 71f1ea3e91b040f49e8f772b652db3e1
+              name: 'Enclosure {#ENCLOSURE_NAME} - Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "enclosure_status", "{#ENCLOSURE_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado del enclosure (1=online, 0=offline)
+              applications:
+                - application:
+                    name: Hardware
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4e1
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "enclosure_status", "{#ENCLOSURE_ID}"])=0'
+                  name: 'Enclosure {#ENCLOSURE_NAME} - OFFLINE'
+                  priority: DISASTER
+                  description: 'Enclosure offline. Verificar conectividad y alimentación.'
+                  tags:
+                    - tag: Component
+                      value: Hardware
+                    - tag: Severity
+                      value: Disaster
+            - uuid: 71f1ea3e91b040f49e8f772b652db3e2
+              name: 'Enclosure {#ENCLOSURE_NAME} - Battery {#BATTERY_ID} Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "enclosure_battery_status", "{#ENCLOSURE_ID}", "{#BATTERY_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado de batería (1=online, 0=failed)
+                CRÍTICO: Batería fallida = riesgo de pérdida de datos en caché
+                Referencia: sg248543.txt - Battery backup for write cache
+              applications:
+                - application:
+                    name: Hardware
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4e2
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "enclosure_battery_status", "{#ENCLOSURE_ID}", "{#BATTERY_ID}"])=0'
+                  name: 'Enclosure {#ENCLOSURE_NAME} - Battery {#BATTERY_ID} FAILED'
+                  priority: DISASTER
+                  description: 'Batería fallida. Riesgo de pérdida de datos en caché. Reemplazar inmediatamente.'
+                  tags:
+                    - tag: Component
+                      value: Hardware
+                    - tag: Severity
+                      value: Disaster
+            - uuid: 71f1ea3e91b040f49e8f772b652db3e3
+              name: 'Enclosure {#ENCLOSURE_NAME} - PSU {#PSU_ID} Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "enclosure_psu_status", "{#ENCLOSURE_ID}", "{#PSU_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado de power supply (1=online, 0=failed)
+              applications:
+                - application:
+                    name: Hardware
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4e3
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "enclosure_psu_status", "{#ENCLOSURE_ID}", "{#PSU_ID}"])=0'
+                  name: 'Enclosure {#ENCLOSURE_NAME} - PSU {#PSU_ID} FAILED'
+                  priority: HIGH
+                  description: 'Power supply fallida. Verificar redundancia.'
+                  tags:
+                    - tag: Component
+                      value: Hardware
+                    - tag: Severity
+                      value: High
+            - uuid: 71f1ea3e91b040f49e8f772b652db3e4
+              name: 'Enclosure {#ENCLOSURE_NAME} - Canister {#CANISTER_ID} Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "node_canister_status", "{#ENCLOSURE_ID}", "{#CANISTER_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado de node/canister (1=online, 0=offline)
+              applications:
+                - application:
+                    name: Hardware
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4e4
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "node_canister_status", "{#ENCLOSURE_ID}", "{#CANISTER_ID}"])=0'
+                  name: 'Enclosure {#ENCLOSURE_NAME} - Canister {#CANISTER_ID} OFFLINE'
+                  priority: DISASTER
+                  description: 'Canister offline. Verificar cluster y failover.'
+                  tags:
+                    - tag: Component
+                      value: Hardware
+                    - tag: Severity
+                      value: Disaster
+        
+        # =======================================================================
+        # DISCOVER REPLICATION RELATIONSHIPS (NEW)
+        # =======================================================================
+        - uuid: 61f1ea3e91b040f49e8f772b652db2a6
+          name: 'Discover Replication Relationships'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "discover_replications"]'
+          delay: '{$IBM_STORAGE.LLD_INTERVAL}'
+          lifetime: 30d
+          description: |
+            Descubre relaciones de replicación remota
+            Comando: lsrcrelationship -nohdr -delim :
+            Referencia: sg248543.txt Capítulo 7 - Remote Copy
+          item_prototypes:
+            - uuid: 71f1ea3e91b040f49e8f772b652db3f1
+              name: 'RC {#RC_RELATIONSHIP_NAME} - Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "replication_status", "{#RC_RELATIONSHIP_ID}"]'
+              delay: 180s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado de replicación (1=synchronized, 0=broken, 2=synchronizing)
+                Referencia: sg248543.txt - Remote Copy monitoring
+              applications:
+                - application:
+                    name: Replication
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4f1
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "replication_status", "{#RC_RELATIONSHIP_ID}"])=0'
+                  name: 'RC {#RC_RELATIONSHIP_NAME} - BROKEN'
+                  priority: HIGH
+                  description: 'Replicación rota. Verificar conectividad y estado de volúmenes.'
+                  tags:
+                    - tag: Component
+                      value: Replication
+                    - tag: Severity
+                      value: High
+            - uuid: 71f1ea3e91b040f49e8f772b652db3f2
+              name: 'RC {#RC_RELATIONSHIP_NAME} - Lag Seconds'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "replication_lag_seconds", "{#RC_RELATIONSHIP_ID}"]'
+              delay: 180s
+              history: 7d
+              value_type: FLOAT
+              units: s
+              description: |
+                Lag de replicación en segundos
+              applications:
+                - application:
+                    name: Replication
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4f2
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "replication_lag_seconds", "{#RC_RELATIONSHIP_ID}"])>{$REPLICATION_LAG_WARN}'
+                  name: 'RC {#RC_RELATIONSHIP_NAME} - High Lag (>{$REPLICATION_LAG_WARN}s)'
+                  priority: AVERAGE
+                  description: 'Lag de replicación elevado. Verificar ancho de banda y carga.'
+                  tags:
+                    - tag: Component
+                      value: Replication
+                    - tag: Severity
+                      value: Warning
+        
+        # =======================================================================
+        # DISCOVER ARRAYS (MDisk)
+        # =======================================================================
+        - uuid: 61f1ea3e91b040f49e8f772b652db2a7
+          name: 'Discover Arrays'
+          type: EXTERNAL
+          key: 'ibm_flash_monitor["{HOST.CONN}", "discover_arrays"]'
+          delay: '{$IBM_STORAGE.LLD_INTERVAL}'
+          lifetime: 30d
+          description: |
+            Descubre arrays MDisk (RAID)
+            Comando: lsarray -nohdr -delim :
+          item_prototypes:
+            - uuid: 71f1ea3e91b040f49e8f772b652db3g1
+              name: 'Array {#ARRAY_NAME} - Status'
+              type: EXTERNAL
+              key: 'ibm_flash_monitor["{HOST.CONN}", "array_status", "{#ARRAY_ID}"]'
+              delay: 120s
+              history: 7d
+              value_type: FLOAT
+              description: |
+                Estado del array MDisk (1=online, 0=degraded/failed)
+              applications:
+                - application:
+                    name: Hardware
+              trigger_prototypes:
+                - uuid: 81f1ea3e91b040f49e8f772b652db4g1
+                  expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "array_status", "{#ARRAY_ID}"])=0'
+                  name: 'Array {#ARRAY_NAME} - DEGRADED/FAILED'
+                  priority: HIGH
+                  description: 'Array degradado o fallido. Verificar drives y reconstrucción.'
+                  tags:
+                    - tag: Component
+                      value: Hardware
+                    - tag: Severity
+                      value: High
+      
+      # =======================================================================
+      # TRIGGERS DE NIVEL SUPERIOR (No LLD)
+      # =======================================================================
+      triggers:
+        - uuid: 91f1ea3e91b040f49e8f772b652db5b1
+          expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "system_health"])=0'
+          name: 'System OFFLINE'
+          priority: DISASTER
+          description: 'Sistema completo offline. Verificar nodos y conectividad.'
+          tags:
+            - tag: Component
+              value: System
+            - tag: Severity
+              value: Disaster
+        - uuid: 91f1ea3e91b040f49e8f772b652db5b2
+          expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "system_health"])=2'
+          name: 'System DEGRADED'
+          priority: HIGH
+          description: 'Sistema degradado. Verificar eventos y componentes.'
+          tags:
+            - tag: Component
+              value: System
+            - tag: Severity
+              value: High
+        - uuid: 91f1ea3e91b040f49e8f772b652db5b3
+          expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "critical_events_count"])>0'
+          name: 'Critical Events Present'
+          priority: HIGH
+          description: 'Hay eventos críticos sin resolver. Revisar log de eventos.'
+          tags:
+            - tag: Component
+              value: Events
+            - tag: Severity
+              value: High
+        - uuid: 91f1ea3e91b040f49e8f772b652db5b4
+          expression: 'last(/IBM FlashSystem 5045 by Go ExternalCheck/ibm_flash_monitor["{HOST.CONN}", "warning_events_count"])>5'
+          name: 'Multiple Warning Events (>5)'
+          priority: AVERAGE
+          description: 'Múltiples eventos warning. Revisar tendencias.'
+          tags:
+            - tag: Component
+              value: Events
+            - tag: Severity
+              value: Warning
+      
+      # =======================================================================
+      # DASHBOARDS (Zabbix 7.2)
+      # =======================================================================
+      dashboards:
+        - uuid: a1f1ea3e91b040f49e8f772b652db6c1
+          name: 'IBM FlashSystem Overview'
+          pages:
+            - name: 'System Health'
+              widgets:
+                - type: ITEM
+                  x: '0'
+                  y: '0'
+                  width: '6'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: rf_lines
+                      value: '1'
+                    - type: ITEM
+                      name: itemids
+                      value:
+                        host: 'IBM FlashSystem 5045 by Go ExternalCheck'
+                        key: 'ibm_flash_monitor["{HOST.CONN}", "system_health"]'
+                    - type: STRING
+                      name: name
+                      value: 'System Health Status'
+                - type: ITEM
+                  x: '6'
+                  y: '0'
+                  width: '6'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: rf_lines
+                      value: '1'
+                    - type: ITEM
+                      name: itemids
+                      value:
+                        host: 'IBM FlashSystem 5045 by Go ExternalCheck'
+                        key: 'ibm_flash_monitor["{HOST.CONN}", "critical_events_count"]'
+                    - type: STRING
+                      name: name
+                      value: 'Critical Events'
+                - type: PROBLEMS
+                  x: '0'
+                  y: '3'
+                  width: '12'
+                  height: '6'
+                  fields:
+                    - type: INTEGER
+                      name: show_severity
+                      value: '1'
+                    - type: INTEGER
+                      name: show_timeline
+                      value: '0'
+            - name: 'Storage Pools'
+              widgets:
+                - type: CLASSIC
+                  x: '0'
+                  y: '0'
+                  width: '24'
+                  height: '10'
+                  fields:
+                    - type: INTEGER
+                      name: columns
+                      value: '2'
+                    - type: STRING
+                      name: filter_name
+                      value: 'Pool.*Capacity Used'
+            - name: 'Safeguarded Copy'
+              widgets:
+                - type: CLASSIC
+                  x: '0'
+                  y: '0'
+                  width: '24'
+                  height: '10'
+                  fields:
+                    - type: INTEGER
+                      name: columns
+                      value: '2'
+                    - type: STRING
+                      name: filter_name
+                      value: 'Safeguarded.*Status'
+      
+      # =======================================================================
+      # TAGS DE PLANTILLA
+      # =======================================================================
+      tags:
+        - tag: vendor
+          value: IBM
+        - tag: product
+          value: FlashSystem
+        - tag: type
+          value: Storage
+        - tag: technology
+          value: Storage Virtualize
+        - tag: version
+          value: '8.7'
+        - tag: monitoring
+          value: Go ExternalCheck
+        - tag: author
+          value: Alatreon Bank
+        - tag: license
+          value: Apache 2.0

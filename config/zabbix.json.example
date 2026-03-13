@@ -1,0 +1,281 @@
+{
+  "_comment": "================================================================================",
+  "_comment": "IBM FlashSystem Monitor para Zabbix 7.2 - Configuración No Sensible",
+  "_comment": "================================================================================",
+  "_comment": "ARCHIVO: zabbix.json.example",
+  "_comment": "PROPÓSITO: Configuración general del monitor (sin credenciales)",
+  "_comment": "PERMISOS RECOMENDADOS: 640 (rw-r-----)",
+  "_comment": "PROPIETARIO: zabbix:zabbix",
+  "_comment": "UBICACIÓN: /opt/zabbix-ibm-flash/config/zabbix.json",
+  "_comment": "================================================================================",
+  "_comment": "",
+  "_comment": "REFERENCIAS DOCUMENTALES:",
+  "_comment": "- sg248561.txt: IBM Storage Virtualize V8.7 Redbook (Capítulo 4 - Security)",
+  "_comment": "- svc_bkmap_cliguidebk (1).txt: CLI Command Reference",
+  "_comment": "- Zabbix_Documentation_7.2.en.txt: ExternalCheck specification (p.1518)",
+  "_comment": "================================================================================",
+
+  "storage": {
+    "_comment": "Configuración de conexión al IBM FlashSystem",
+    
+    "default_timeout": 25,
+    "_comment": "Timeout para operaciones SSH (segundos)",
+    "_comment": "DEBE ser menor que Timeout en zabbix_server.conf (recomendado: 30s)",
+    "_comment": "Referencia: Zabbix_Documentation_7.2.en.txt - Timeout parameter",
+    "_comment": "Rango válido: 1-30 segundos",
+    "_comment": "Valor recomendado: 25 (deja margen de 5s para Zabbix)",
+    
+    "connection_retries": 3,
+    "_comment": "Número de reintentos para conexiones fallidas",
+    "_comment": "Útil para errores transitorios de red",
+    
+    "retry_delay_seconds": 5,
+    "_comment": "Delay entre reintentos (segundos)",
+    
+    "ssh_port": 22,
+    "_comment": "Puerto SSH del FlashSystem (estándar: 22)",
+    "_comment": "Referencia: svc_bkmap_cliguidebk (1).txt - SSH configuration",
+    
+    "ssh_user": "zabbix_monitor",
+    "_comment": "Usuario de solo lectura en FlashSystem",
+    "_comment": "NO usar 'superuser' o 'root' para monitoreo",
+    "_comment": "Referencia: sg248561.txt Capítulo 4 - User security best practices",
+    "_comment": "Este usuario debe tener:",
+    "_comment": "  - securityadmin = no (solo lectura)",
+    "_comment": "  - webui = no (sin acceso GUI)",
+    "_comment": "  - ssh_key = yes (autenticación por clave)",
+    
+    "allowed_commands": [
+      "_comment": "WHITELIST de comandos CLI permitidos (prevención de inyección)",
+      "_comment": "Referencia: svc_bkmap_cliguidebk (1).txt - Command reference",
+      "_comment": "Solo comandos de lectura (ls*), sin mk*, rm*, ch* peligrosos",
+      
+      "lssystem",
+      "lsnode",
+      "lsnodecanister",
+      "lsmdiskgrp",
+      "lsmdisk",
+      "lsfreeextents",
+      "lsvdisk",
+      "lsvdiskcopy",
+      "lsvolumegroup",
+      "lsdrive",
+      "lsenclosure",
+      "lsenclosurebattery",
+      "lsenclosurecanister",
+      "lsenclosurepsu",
+      "lsenclosureslot",
+      "lsreplication",
+      "lsrcrelationship",
+      "lssafeguardedcopy",
+      "lssnapshot",
+      "lssnapshotpolicy",
+      "lseventlog",
+      "lsportstats",
+      "lscompressionstats",
+      "lshost",
+      "lshostcluster",
+      "lsip",
+      "lsarray"
+    ],
+    
+    "output_format": "-nohdr -delim :",
+    "_comment": "Formato de salida estándar para comandos CLI",
+    "_comment": "-nohdr: Sin encabezados (más fácil de parsear)",
+    "_comment": "-delim :: Delimitador colon (consistente)",
+    "_comment": "Referencia: svc_bkmap_cliguidebk (1).txt - CLI output formats"
+  },
+
+  "zabbix": {
+    "_comment": "Configuración específica para integración con Zabbix 7.2",
+    
+    "lld_refresh_interval": 3600,
+    "_comment": "Intervalo de actualización para Low-Level Discovery (segundos)",
+    "_comment": "Recomendado: 3600s (1 hora) para no sobrecargar el storage",
+    "_comment": "Referencia: Zabbix_Documentation_7.2.en.txt - LLD configuration (p.1520)",
+    
+    "item_refresh_intervals": {
+      "_comment": "Intervalos de polling por tipo de métrica",
+      "_comment": "Ajustar según criticidad y carga del sistema",
+      
+      "status": 60,
+      "_comment": "Items de estado (system_health, drive_status): 60s",
+      
+      "capacity": 300,
+      "_comment": "Items de capacidad (pool_capacity): 300s (5 min)",
+      
+      "performance": 120,
+      "_comment": "Items de rendimiento (iops, throughput): 120s",
+      
+      "replication": 180,
+      "_comment": "Items de replicación: 180s (3 min)",
+      
+      "safeguarded_copy": 300,
+      "_comment": "Safeguarded Copy status: 300s (5 min)",
+      "_comment": "Referencia: sg248561.txt Sección 6.3 - Safeguarded Copy"
+    },
+    
+    "external_script_path": "/usr/lib/zabbix/externalscripts",
+    "_comment": "Ruta oficial de ExternalScripts en Zabbix 7.2",
+    "_comment": "Referencia: Zabbix_Documentation_7.2.en.txt - ExternalScripts parameter",
+    "_comment": "Verificar con: zabbix_server --help",
+    
+    "max_lld_objects": 10000,
+    "_comment": "Límite máximo de objetos por descubrimiento LLD",
+    "_comment": "Prevención de DoS - Zabbix tiene límite de 1MB para LLD JSON",
+    
+    "supported_versions": {
+      "zabbix_min": "7.0",
+      "zabbix_max": "7.4",
+      "storage_virtualize_min": "8.5",
+      "storage_virtualize_max": "8.7"
+    },
+    "_comment": "Versiones soportadas de Zabbix y Storage Virtualize"
+  },
+
+  "logging": {
+    "_comment": "Configuración de logging y auditoría",
+    "_comment": "Referencia: sg248561.txt Sección 4.2.2 - Audit log",
+    
+    "level": "INFO",
+    "_comment": "Nivel de log: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+    "_comment": "Producción: INFO o WARNING",
+    "_comment": "Troubleshooting: DEBUG (temporal)",
+    
+    "file_path": "/opt/zabbix-ibm-flash/logs/ibm_flash_monitor.log",
+    "_comment": "Ruta del archivo de log",
+    "_comment": "PERMISOS: 640 (rw-r-----)",
+    "_comment": "PROPIETARIO: zabbix:zabbix",
+    
+    "max_file_size_mb": 50,
+    "_comment": "Tamaño máximo antes de rotación (MB)",
+    
+    "backup_count": 5,
+    "_comment": "Número máximo de archivos de log rotados",
+    
+    "enable_json_format": true,
+    "_comment": "Formato JSON para integración con SIEM/ELK",
+    
+    "enable_checksum": true,
+    "_comment": "Habilitar checksum SHA256 para integridad del log",
+    "_comment": "Referencia: sg248561.txt - Audit log integrity",
+    
+    "enable_console": true,
+    "_comment": "Habilitar salida a stderr (para debugging)",
+    "_comment": "NUNCA habilitar stdout (Zabbix lo interpreta como dato)"
+  },
+
+  "security": {
+    "_comment": "Configuración de seguridad y hardening",
+    "_comment": "Referencia: sg248561.txt Capítulo 4 - Security settings",
+    
+    "require_known_hosts": true,
+    "_comment": "Requerir verificación de host key SSH",
+    "_comment": "Producción: true (usar known_hosts)",
+    "_comment": "Desarrollo: false (InsecureIgnoreHostKey)",
+    
+    "known_hosts_path": "/opt/zabbix-ibm-flash/config/known_hosts",
+    "_comment": "Ruta del archivo known_hosts para verificación SSH",
+    
+    "reject_dangerous_chars": true,
+    "_comment": "Rechazar caracteres peligrosos en comandos (;|&$`><)",
+    "_comment": "Prevención de inyección de comandos",
+    
+    "max_command_length": 4096,
+    "_comment": "Longitud máxima de comando (prevención de DoS)",
+    
+    "max_param_length": 256,
+    "_comment": "Longitud máxima de parámetro individual",
+    
+    "validate_file_permissions": true,
+    "_comment": "Validar permisos de archivos sensibles (clave SSH: 600)",
+    "_comment": "Referencia: svc_bkmap_cliguidebk (1).txt - SSH key security",
+    
+    "expected_key_permissions": "0600",
+    "_comment": "Permisos esperados para clave privada SSH",
+    
+    "reject_symlinks": true,
+    "_comment": "Rechazar symlinks para archivos sensibles (prevención TOCTOU)",
+    
+    "allowed_users": [
+      "zabbix"
+    ],
+    "_comment": "Usuarios permitidos para ejecutar el script",
+    "_comment": "NUNCA permitir 'root' para monitoreo",
+    
+    "reject_privileged_users": [
+      "root",
+      "superuser",
+      "admin",
+      "service"
+    ],
+    "_comment": "Usuarios privilegiados rechazados (principio de mínimo privilegio)"
+  },
+
+  "metrics": {
+    "_comment": "Configuración de métricas y umbrales",
+    
+    "capacity_thresholds": {
+      "warning_percent": 85,
+      "_comment": "Umbral de warning para capacidad de pool (%)",
+      "_comment": "Trigger recomendado: last() > 85",
+      
+      "critical_percent": 95,
+      "_comment": "Umbral crítico para capacidad de pool (%)",
+      "_comment": "Trigger recomendado: last() > 95"
+    },
+    
+    "safeguarded_copy": {
+      "expiry_warning_hours": 24,
+      "_comment": "Alertar cuando Safeguarded Copy expire en < 24 horas",
+      "_comment": "Referencia: sg248561.txt Sección 6.3 - Safeguarded Copy retention"
+    },
+    
+    "replication": {
+      "lag_warning_seconds": 300,
+      "_comment": "Alertar cuando lag de replicación > 300 segundos",
+      "_comment": "Referencia: sg248543.txt - Remote Copy monitoring"
+    },
+    
+    "status_values": {
+      "online": "1",
+      "offline": "0",
+      "warning": "2",
+      "unknown": "3",
+      "not_configured": "-1"
+    },
+    "_comment": "Valores estándar para métricas de estado (Zabbix compatible)"
+  },
+
+  "maintenance": {
+    "_comment": "Configuración de mantenimiento y operaciones",
+    
+    "enable_auto_cleanup": true,
+    "_comment": "Habilitar limpieza automática de recursos",
+    
+    "cleanup_interval_hours": 24,
+    "_comment": "Intervalo de limpieza (horas)",
+    
+    "health_check_enabled": true,
+    "_comment": "Habilitar chequeos de salud del monitor",
+    
+    "health_check_interval_seconds": 300,
+    "_comment": "Intervalo de health check (segundos)"
+  },
+
+  "_metadata": {
+    "_comment": "Metadatos del archivo de configuración",
+    
+    "version": "1.0.0",
+    "created": "2026-01-XX",
+    "last_modified": "2026-01-XX",
+    "compatible_with": {
+      "go_module": "zabbix-ibm-flash",
+      "min_go_version": "1.22",
+      "zabbix_version": "7.2",
+      "storage_virtualize_version": "8.7"
+    },
+    "author": "Alatreon Bank - Storage Monitoring Team",
+    "license": "Apache 2.0"
+  }
+}
